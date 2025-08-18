@@ -26,7 +26,7 @@ Lean Toolchain provides a collection of formally verified cryptographic algorith
 
 ```bash
 # Clone the repository
-git clone https://github.com/SentinelOps-Remote-CI/lean-toolchain.git
+git clone https://github.com/SentinelOps-CI/lean-toolchain.git
 cd lean-toolchain
 
 # Build the project
