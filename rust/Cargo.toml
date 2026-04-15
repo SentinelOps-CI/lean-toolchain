@@ -11,7 +11,7 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 # Add dependencies as needed for the extracted code
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 
 [[bench]]
 name = "sha256_bench"
