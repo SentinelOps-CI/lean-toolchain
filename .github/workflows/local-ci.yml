@@ -1,0 +1,46 @@
+name: Local CI (Lean + Rust)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Sorry policy
+        run: bash scripts/check_sorry.sh
+
+      - name: Lake build
+        run: lake build
+
+      - name: Lake test
+        run: lake test
+
+      - name: Regenerate Rust crate
+        run: lake exe extract
+
+      - name: Cargo test and clippy
+        working-directory: rust
+        run: |
+          cargo test
+          cargo clippy --all-targets -- -D warnings

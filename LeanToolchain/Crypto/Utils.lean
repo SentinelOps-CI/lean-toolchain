@@ -2,6 +2,7 @@ import Init.Data.ByteArray
 import Init.Data.Nat.Bitwise
 import Init.Data.List.Basic
 import Init.Data.UInt
+import Mathlib.Tactic
 
 /-!
 # Cryptographic Utilities
@@ -91,40 +92,60 @@ def wordsToBytes (words : List UInt32) : List UInt8 :=
       aux (acc ++ bytes) rest
   aux [] words
 
-/-- Create a list of n repeated elements -/
+theorem wordsToBytes_aux_length (acc : List UInt8) (ws : List UInt32) :
+    (wordsToBytes.aux acc ws).length = acc.length + 4 * ws.length := by
+  induction ws generalizing acc with
+  | nil => simp [wordsToBytes.aux]
+  | cons w ws ih =>
+    simp [wordsToBytes.aux, List.length_append, ih, Nat.mul_add, Nat.add_assoc, Nat.add_comm]
+
+theorem wordsToBytes_length (ws : List UInt32) : (wordsToBytes ws).length = 4 * ws.length := by
+  simp [wordsToBytes, wordsToBytes_aux_length]
+
+/-- Create an array of `n` repeated bytes (uses `List.replicate` for length lemmas). -/
 def replicate (n : Nat) (x : UInt8) : Array UInt8 :=
-  let rec aux (acc : Array UInt8) (i : Nat) : Array UInt8 :=
-    if i >= n then acc else aux (acc.push x) (i + 1)
-  aux Array.empty 0
+  (List.replicate n x).toArray
 
-/-- Pad a message to a multiple of 512 bits (64 bytes) -/
+/-- Pad a message to a multiple of 512 bits (64 bytes).
+
+Uses `Array` concatenation so `Array.size_append` applies cleanly in proofs. -/
 def padMessage (message : ByteArray) : ByteArray :=
-  let messageLength := message.size
-  let messageLengthBits := messageLength * 8
+  let L := message.size
+  let messageLengthBits := L * 8
+  let paddingLength := (64 - ((L + 1 + 8) % 64)) % 64
+  let withBit := message.data ++ #[(0x80 : UInt8)]
+  let padded := withBit ++ (List.replicate paddingLength (0 : UInt8)).toArray
+  let lengthArr := (wordsToBytes [0, messageLengthBits.toUInt32]).toArray
+  ByteArray.mk (padded ++ lengthArr)
 
-  -- Calculate padding length: we need (messageLength + 1 + paddingLength + 8) % 64 = 0
-  -- So paddingLength = (64 - ((messageLength + 1 + 8) % 64)) % 64
-  let paddingLength := (64 - ((messageLength + 1 + 8) % 64)) % 64
+/-- Length after padding (bytes): original + 0x80 + zero run + 64-bit length field -/
+def padMessageTotalLength (messageLength paddingLength : Nat) : Nat :=
+  messageLength + 1 + paddingLength + 8
 
-  -- Add the 1-bit (0x80 byte)
-  let messageWithBit := message ++ ByteArray.mk #[0x80]
-
-  -- Add zero padding
-  let messageWithPadding := messageWithBit ++ ByteArray.mk (replicate paddingLength 0)
-
-  -- Add 64-bit length (big-endian, but we only use the lower 32 bits for now)
-  let lengthBytes := ByteArray.mk (Array.mk (wordsToBytes [0, messageLengthBits.toUInt32]))
-
-  messageWithPadding ++ lengthBytes
+theorem padMessageTotalLength_mod_64 (messageLength paddingLength : Nat)
+    (h : paddingLength = (64 - ((messageLength + 1 + 8) % 64)) % 64) :
+    padMessageTotalLength messageLength paddingLength % 64 = 0 := by
+  dsimp [padMessageTotalLength]
+  subst h
+  -- Let `base = messageLength + 9`; show `base + (64 - base % 64) % 64 ≡ 0 (mod 64)`.
+  omega
 
 /-- Lemma: padMessage always produces a length that is a multiple of 64 -/
+theorem replicate_size (n : Nat) (x : UInt8) : (replicate n x).size = n := by
+  simp [replicate]
+
+theorem wordsToBytes_two (a b : UInt32) : (wordsToBytes [a, b]).length = 8 := by
+  simpa using (wordsToBytes_length [a, b])
+
+theorem padMessage_size_eq (msg : ByteArray) :
+    (padMessage msg).size =
+      padMessageTotalLength msg.size ((64 - ((msg.size + 1 + 8) % 64)) % 64) := by
+  simp [padMessage, padMessageTotalLength, ByteArray.size, Array.size_append, List.length_replicate,
+    List.size_toArray, wordsToBytes_two, Nat.add_assoc]
+
 theorem padMessage_length_mod_64 (msg : ByteArray) : (padMessage msg).size % 64 = 0 := by
-  let messageLength := msg.size
-  let base := messageLength + 1 + 8
-  let y := (64 - base % 64) % 64
-  -- We need to show (base + y) % 64 = 0
-  -- Since y = (64 - base % 64) % 64, we have base % 64 + y = 64 (mod 64) = 0
-  sorry
+  rw [padMessage_size_eq]
+  exact padMessageTotalLength_mod_64 _ _ rfl
 
 /-- XOR two byte arrays of the same length -/
 def xorBytes (a b : ByteArray) : Option ByteArray :=
@@ -137,12 +158,12 @@ def xorBytes (a b : ByteArray) : Option ByteArray :=
 def concatBytes (a b : ByteArray) : ByteArray :=
   ByteArray.mk (a.data ++ b.data)
 
-/-- Extract a subarray from a byte array -/
-def extractBytes (bytes : ByteArray) (start : Nat) (end : Nat) : ByteArray :=
-  if start >= bytes.size || end > bytes.size || start >= end then
+/-- Extract a subarray from a byte array (inclusive start, exclusive `stop`) -/
+def extractBytes (bytes : ByteArray) (start stop : Nat) : ByteArray :=
+  if start >= bytes.size || stop > bytes.size || start >= stop then
     ByteArray.empty
   else
-    ByteArray.mk (Array.mk (List.range (end - start) |>.map (fun i => bytes[start + i]!)))
+    ByteArray.mk (Array.mk (List.range (stop - start) |>.map (fun i => bytes[start + i]!)))
 
 /-- Compare two byte arrays for equality -/
 def bytesEqual (a b : ByteArray) : Bool :=

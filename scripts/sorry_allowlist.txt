@@ -1,0 +1,3 @@
+# Path prefixes (relative to repo root) where `sorry` is temporarily permitted.
+# Example (uncomment to use):
+# LeanToolchain/Math/Experimental.lean

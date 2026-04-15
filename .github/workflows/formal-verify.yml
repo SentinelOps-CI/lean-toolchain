@@ -1,3 +1,5 @@
+# Organization-hosted remote checks (SentinelOps). Contributor-visible Lean/Rust
+# verification also runs in `.github/workflows/local-ci.yml`.
 name: SentinelOps
 on: [push, pull_request]
 

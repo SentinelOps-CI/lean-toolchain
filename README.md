@@ -1,101 +1,132 @@
+<div align="center">
+
 # Lean Toolchain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Lean](https://img.shields.io/badge/Lean-4.21.0-7c5cba)](https://leanprover.github.io/lean4/)
+[![Local CI](https://github.com/SentinelOps-CI/lean-toolchain/actions/workflows/local-ci.yml/badge.svg)](https://github.com/SentinelOps-CI/lean-toolchain/actions/workflows/local-ci.yml)
 
-Cryptographic, math, and data-parsing primitives formally proven in Lean 4.
+</div>
 
-## Overview
+> **Verified crypto and discrete linear algebra in Lean 4**, with **mathlib-backed** real norms where needed, and a **maintained Rust surface** produced by a template generator and checked against the same vectors as the Lean test suite.
 
-Lean Toolchain provides a collection of formally verified cryptographic algorithms, mathematical operations, and data parsing utilities. All implementations are proven correct in Lean 4 and can be extracted to high-performance Rust code.
+---
 
-## Key Features
+## What this repository is
 
-- **Formally Verified**: All algorithms come with mathematical proofs of correctness
-- **High Performance**: Extracted Rust code matches or exceeds industry standards
-- **Comprehensive**: SHA-256, HMAC, linear algebra, CSV/JSON parsing
-- **Developer Friendly**: Clear documentation, examples, and contribution guidelines
+Lean Toolchain is a small, opinionated library for teaching and experimentation: cryptographic primitives you can read and prove against, dimension-aware vectors and matrices, and a reproducible path from Lean specifications to a `rust/` crate. It is not a certified product or a drop-in replacement for audited cryptography libraries; see [SECURITY.md](SECURITY.md) before relying on it in sensitive contexts.
 
-## Quick Start
+---
 
-### Prerequisites
+## Capabilities
 
-- [Lean 4](https://leanprover.github.io/lean4/doc/quickstart.html)
-- [Rust](https://rustup.rs/) (for extraction)
+| Area | Contents |
+| --- | --- |
+| **Cryptography** | SHA-256 and HMAC-SHA256 on `ByteArray`, byte and hex helpers, NIST and RFC 4231 vectors in `LeanToolchain/Crypto/Tests`. |
+| **Discrete math** | Length-indexed `Vec`, row–column `Matrix`, structural lemmas; real-valued norms (`ℝ`, `sqrt`) in `Norm.lean` via mathlib. |
+| **Rust artifacts** | `lake exe extract` writes `rust/` from `LeanToolchain/Extraction` (template emission, not Lean term extraction). Integration tests live in `rust/tests/`. |
+| **Quality bar** | No `sorry` under `LeanToolchain/` by policy (`scripts/check_sorry.sh`); local CI runs Lean and Rust gates (see [docs/development/ci.md](docs/development/ci.md)). |
 
-### Installation
+---
+
+## How the pieces fit together
+
+```mermaid
+flowchart LR
+  subgraph lean [Lean 4]
+    Lib[LeanToolchain library]
+    Tests[Tests and benchmarks]
+  end
+  subgraph rust [Rust]
+    Gen[Generated src and Cargo.toml]
+    Cargo[cargo test and clippy]
+  end
+  Lib --> Tests
+  Lib --> Extract[lake exe extract]
+  Extract --> Gen
+  Gen --> Cargo
+```
+
+---
+
+## Quick start
+
+**Prerequisites:** [Lean 4](https://leanprover.github.io/lean4/doc/quickstart.html) (pin in [`lean-toolchain`](lean-toolchain)) and, for Rust work, [Rust stable](https://rustup.rs/).
+
+Clone and verify the default build and smoke tests:
 
 ```bash
-# Clone the repository
 git clone https://github.com/SentinelOps-CI/lean-toolchain.git
 cd lean-toolchain
-
-# Build the project
 lake build
-
-# Run tests
 lake test
 ```
 
-### Usage
+Regenerate the Rust tree and validate it (mirrors CI):
 
-```lean
-import LeanToolchain.Crypto.SHA256
-import LeanToolchain.Math.Vector
-
--- SHA-256 hashing
-#eval sha256 "hello world"
-
--- Vector operations
-#eval Vec.cons 1 (Vec.cons 2 Vec.nil)
+```bash
+lake exe extract
+cd rust
+cargo test
+cargo clippy --all-targets -- -D warnings
 ```
 
-## Project Structure
+Optional: `lake exe cryptoTests`, `lake exe mathTests`, or `lake exe benchmarks` for focused runs.
+
+---
+
+## Repository layout
 
 ```
 lean-toolchain/
-├── LeanToolchain/           # Main library
-│   ├── Crypto/             # Cryptographic primitives
-│   ├── Math/               # Mathematical operations
-│   └── Data/               # Data parsing utilities
-├── docs/                   # Documentation
-├── bench/                  # Benchmarks
-└── scripts/                # Build and release scripts
+├── LeanToolchain/     # Crypto, Math, Extraction; Tests/; Benchmarks/
+├── rust/              # Generated crate (regenerate with lake exe extract)
+├── docs/              # MkDocs site source (mkdocs.yml)
+├── scripts/           # e.g. check_sorry.sh and sorry_allowlist.txt
+├── lakefile.lean      # Lake config and mathlib require
+└── lean-toolchain     # Lean release pin
 ```
 
-## Development
+---
 
-### Running Tests
+## Toolchain policy
 
-```bash
-lake test
-```
+Lean is pinned in `lean-toolchain`; **mathlib** is required from `lakefile.lean` on a tag or revision that matches that Lean version. When you bump Lean, bump mathlib in lockstep and run `lake update`. Details: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Building Documentation
-
-```bash
-# Install mkdocs-material
-pip install mkdocs-material
-
-# Build docs
-mkdocs build
-```
-
-### Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) and [Development Documentation](docs/development/contributing.md) for details.
+---
 
 ## Documentation
 
-- [API Reference](docs/api/)
-- [Examples](docs/examples/)
-- [Development Guide](docs/development/)
+| Document | Purpose |
+| --- | --- |
+| [docs/index.md](docs/index.md) | Hub and how to build the MkDocs site |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributions, `sorry` policy, PR checklist |
+| [docs/development/ci.md](docs/development/ci.md) | SentinelOps vs GitHub Actions, Dependabot |
+| [docs/development/extraction.md](docs/development/extraction.md) | What `lake exe extract` does and does not do |
+| [docs/api/crypto.md](docs/api/crypto.md) | Crypto API and HMAC interoperability notes |
+| [docs/api/math.md](docs/api/math.md) | Vectors, matrices, norms |
+| [docs/vector-implementation.md](docs/vector-implementation.md) | `Vec` design notes |
+
+Build the static site from the repository root (after `pip install mkdocs-material`):
+
+```bash
+mkdocs build -f docs/mkdocs.yml
+```
+
+---
+
+## Security
+
+This is a **research and teaching** codebase. Read [SECURITY.md](SECURITY.md) for threat model, reporting, and how Lean theorems relate to generated Rust.
+
+---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Distributed under the MIT License. See [LICENSE](LICENSE).
+
+---
 
 ## Acknowledgments
 
-- [Lean 4](https://leanprover.github.io/lean4/) - The theorem prover and programming language
-- [RustCrypto](https://github.com/RustCrypto) - For reference implementations
-- [NIST](https://www.nist.gov/) - For cryptographic test vectors
+[Lean 4](https://leanprover.github.io/lean4/), [mathlib4](https://github.com/leanprover-community/mathlib4), and public test material from [NIST](https://www.nist.gov/) and relevant RFCs.

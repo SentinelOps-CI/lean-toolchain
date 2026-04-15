@@ -1,0 +1,30 @@
+[package]
+name = "lean-toolchain-rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lean_toolchain_rust"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+# Add dependencies as needed for the extracted code
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "sha256_bench"
+harness = false
+
+[[bench]]
+name = "hmac_bench"
+harness = false
+
+[[bench]]
+name = "vector_bench"
+harness = false
+
+[[bench]]
+name = "matrix_bench"
+harness = false

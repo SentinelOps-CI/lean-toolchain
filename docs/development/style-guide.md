@@ -37,13 +37,14 @@ def getElement (v : Vec α n) (i : Fin n) : α :=
 **Avoid:**
 
 ```lean
-def getElement (v : Vec α n) (i : Nat) : Option α :=
-  if i < n then some (v.get ⟨i, sorry⟩) else none
+-- Do not use `sorry` to manufacture bounds; prefer `Fin n` or a real proof.
+def getElement (v : Vec α n) (i : Nat) (h : i < n) : α :=
+  v.get ⟨i, h⟩
 ```
 
-### 3. Formal Correctness
+### 3. Formal correctness
 
-All implementations should be formally verified. Avoid `sorry` unless absolutely necessary and document why it's needed.
+Prefer **proof-carrying** definitions for core APIs (`LeanToolchain/` is **`sorry`-free by policy**; see `scripts/check_sorry.sh`). When a lemma is not yet proved, do not merge `sorry` into production namespaces: use an allowlisted experimental file, a clearly named `Sketch` namespace, or discuss a waiver in `scripts/sorry_allowlist.txt` with maintainers.
 
 ## Naming Conventions
 
@@ -160,7 +161,7 @@ Organize modules in the following order:
 /-!
 # SHA-256 Implementation
 
-This module provides a formally verified implementation of SHA-256.
+SHA-256 on `ByteArray` with supporting length and padding lemmas.
 -/
 
 import Init.Data.ByteArray
@@ -226,38 +227,15 @@ Every module should have a module-level documentation comment that explains:
 - Usage examples
 - Dependencies and requirements
 
-**Example:**
-
-````lean
-/-!
-# Vector Operations
-
-This module provides dimension-indexed vectors with basic linear algebra operations.
-All operations are formally verified and preserve vector dimensions.
-
-## Key Features
-
-- Type-safe vector operations with compile-time dimension checking
-- Element-wise arithmetic operations (addition, subtraction, scalar multiplication)
-- Dot product and magnitude calculations
-- Formal proofs of algebraic properties
-
-## Usage
+**Example (module doc + usage sketch):**
 
 ```lean
-let v1 : Vec Nat 3 := Vec.mk' [1, 2, 3] 3 (by simp)
-let v2 : Vec Nat 3 := Vec.mk' [4, 5, 6] 3 (by simp)
-let sum := v1.add v2  -- [5, 7, 9]
-let dot := v1.dot v2  -- 32
-````
+/-!
+# Vector operations
 
-## Dependencies
-
-- `Init.Data.List.Basic` for list operations
-- `Init.Data.Nat.Basic` for natural number operations
-  -/
-
-````
+Length-indexed `Vec α n`; see `LeanToolchain/Math/Vector.lean` for imports, definitions, and lemmas.
+-/
+```
 
 ### Function Documentation
 
@@ -295,7 +273,7 @@ Every public function should have a documentation comment that includes:
 -/
 def sha256 (message : ByteArray) : ByteArray :=
   -- implementation
-````
+```
 
 ### Theorem Documentation
 
@@ -426,7 +404,7 @@ Validate inputs at the beginning of functions and return appropriate error value
 ```lean
 def processData (data : List α) (expectedLength : Nat) : Option (Vec α expectedLength) :=
   if data.length = expectedLength then
-    some (Vec.mk' data expectedLength (by simp))
+    some (Vec.mk' data (by rfl))
   else
     none
 ```
@@ -489,8 +467,8 @@ def processList (data : List α) : List β :=
 ```lean
 def testVectorAddition : IO Unit := do
   -- Test basic functionality
-  let v1 := Vec.mk' [1, 2, 3] 3 (by simp)
-  let v2 := Vec.mk' [4, 5, 6] 3 (by simp)
+  let v1 := Vec.mk' [1, 2, 3] (by rfl)
+  let v2 := Vec.mk' [4, 5, 6] (by rfl)
   let sum := v1.add v2
   assert! sum.toList = [5, 7, 9]
 
@@ -565,6 +543,14 @@ def insecureHash (message : ByteArray) : ByteArray :=
   -- No input validation
   sha256 message
 ```
+
+## Proof automation (optional)
+
+mathlib already depends on **Aesop**. When a proof is mostly search over a local
+algebraic goal, importing `Aesop` in that file (or a leaf module) is acceptable.
+Prefer short, stable proofs (`simp`, `omega`, `rfl`) when they communicate the
+mathematical step directly; reach for automation when it removes repetitive
+case splits without hiding the main idea.
 
 ## Version Control
 

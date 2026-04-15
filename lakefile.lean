@@ -1,10 +1,12 @@
 import Lake
 open Lake DSL
 
--- TODO: Add mathlib back when we need real numbers
--- require mathlib from git "https://github.com/leanprover-community/mathlib4" @ "v4.1.0"
+require mathlib from git
+  "https://github.com/leanprover-community/mathlib4.git" @ "v4.21.0"
 
-package leanToolchain
+package leanToolchain where
+  -- Single executable invoked by `lake test` (crypto + math smoke tests).
+  testRunner := "leanToolchainTests"
 
 @[default_target]
 lean_lib LeanToolchain
@@ -19,6 +21,10 @@ lean_exe cryptoTests {
 
 lean_exe mathTests {
   root := `LeanToolchain.Math.Tests.Main
+}
+
+lean_exe leanToolchainTests {
+  root := `LeanToolchain.Tests.Unified
 }
 
 -- Rust extraction targets

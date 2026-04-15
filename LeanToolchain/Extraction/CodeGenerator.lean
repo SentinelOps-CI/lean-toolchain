@@ -1,6 +1,7 @@
-import LeanToolchain.Crypto.SHA256
-import LeanToolchain.Crypto.Utils
 import Init.System.IO
+
+-- Keep this module free of `LeanToolchain.Crypto.*` imports so `lake exe extract` does not
+-- compile the full Mathlib-backed library graph; generated Rust is template-based.
 
 /-!
 # Code Generator for Rust Extraction
@@ -14,7 +15,8 @@ namespace LeanToolchain.Extraction
 /-- Rust code generation context -/
 structure RustContext where
   indentLevel : Nat := 0
-  variables : List String := []
+  /-- Bound names for generated Rust (avoid reserved word `variable`). -/
+  rustBindings : List String := []
   functions : List String := []
 
 /-- Generate indentation -/
@@ -214,7 +216,7 @@ def generateMainSHA256Function : String :=
 }
 
 #[no_mangle]
-pub extern \"C\" fn sha256_hash_c(input: *const u8, input_len: usize, output: *mut u8) -> i32 {
+pub unsafe extern \"C\" fn sha256_hash_c(input: *const u8, input_len: usize, output: *mut u8) -> i32 {
     if input.is_null() || output.is_null() {
         return -1;
     }
@@ -299,22 +301,6 @@ const HMAC_OUTER_PAD: u8 = 0x5c;
 const HMAC_INNER_PAD: u8 = 0x36;
 const SHA256_BLOCK_SIZE: usize = 64;
 
-fn prepare_key(key: &[u8]) -> [u8; SHA256_BLOCK_SIZE] {
-    let mut prepared = [0u8; SHA256_BLOCK_SIZE];
-
-    if key.len() > SHA256_BLOCK_SIZE {
-        // If key is longer than block size, hash it first
-        let hashed_key = sha256_hash(key);
-        prepared[..32].copy_from_slice(&hashed_key);
-    } else {
-        // Copy key and pad with zeros
-        let copy_len = key.len().min(SHA256_BLOCK_SIZE);
-        prepared[..copy_len].copy_from_slice(&key[..copy_len]);
-    }
-
-    prepared
-}
-
 fn xor_with_constant(bytes: &[u8; SHA256_BLOCK_SIZE], constant: u8) -> [u8; SHA256_BLOCK_SIZE] {
     let mut result = [0u8; SHA256_BLOCK_SIZE];
     for i in 0..SHA256_BLOCK_SIZE {
@@ -323,26 +309,44 @@ fn xor_with_constant(bytes: &[u8; SHA256_BLOCK_SIZE], constant: u8) -> [u8; SHA2
     result
 }
 
-pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-    let prepared_key = prepare_key(key);
-    let outer_key = xor_with_constant(&prepared_key, HMAC_OUTER_PAD);
-    let inner_key = xor_with_constant(&prepared_key, HMAC_INNER_PAD);
+/// XOR each byte with `constant` (used when the prepared key is a 32-byte digest).
+fn xor_digest(bytes: &[u8; 32], constant: u8) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = bytes[i] ^ constant;
+    }
+    out
+}
 
-    // Inner hash: H(K_inner || message)
-    let mut inner_input = Vec::with_capacity(SHA256_BLOCK_SIZE + message.len());
+pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    // Match `LeanToolchain.Crypto.hmacPrepareKey`: long keys become a 32-byte digest;
+    // short keys are zero-padded to one block before XOR with ipad/opad.
+    let (inner_key, outer_key): (Vec<u8>, Vec<u8>) = if key.len() > SHA256_BLOCK_SIZE {
+        let d = sha256_hash(key);
+        let ik = xor_digest(&d, HMAC_INNER_PAD);
+        let ok = xor_digest(&d, HMAC_OUTER_PAD);
+        (ik.to_vec(), ok.to_vec())
+    } else {
+        let mut prepared = [0u8; SHA256_BLOCK_SIZE];
+        prepared[..key.len()].copy_from_slice(key);
+        let ik = xor_with_constant(&prepared, HMAC_INNER_PAD);
+        let ok = xor_with_constant(&prepared, HMAC_OUTER_PAD);
+        (ik.to_vec(), ok.to_vec())
+    };
+
+    let mut inner_input = Vec::with_capacity(inner_key.len() + message.len());
     inner_input.extend_from_slice(&inner_key);
     inner_input.extend_from_slice(message);
     let inner_hash = sha256_hash(&inner_input);
 
-    // Outer hash: H(K_outer || inner_hash)
-    let mut outer_input = Vec::with_capacity(SHA256_BLOCK_SIZE + 32);
+    let mut outer_input = Vec::with_capacity(outer_key.len() + 32);
     outer_input.extend_from_slice(&outer_key);
     outer_input.extend_from_slice(&inner_hash);
     sha256_hash(&outer_input)
 }
 
 #[no_mangle]
-pub extern \"C\" fn hmac_sha256_c(
+pub unsafe extern \"C\" fn hmac_sha256_c(
     key: *const u8,
     key_len: usize,
     message: *const u8,
@@ -372,10 +376,10 @@ mod tests {
         let key = b\"key\";
         let message = b\"The quick brown fox jumps over the lazy dog\";
         let expected = [
-            0xf7, 0xbc, 0x83, 0xf4, 0x30, 0x53, 0x84, 0x27,
-            0x9c, 0xd7, 0xba, 0x4b, 0xcb, 0x9e, 0x8f, 0x8b,
-            0x4d, 0x8d, 0x4c, 0x63, 0xcb, 0x1e, 0xdf, 0x7f,
-            0x4b, 0x8b, 0x1f, 0x84, 0x2c, 0x7a, 0x85, 0x6c
+            0xf7, 0xbc, 0x83, 0xf4, 0x30, 0x53, 0x84, 0x24,
+            0xb1, 0x32, 0x98, 0xe6, 0xaa, 0x6f, 0xb1, 0x43,
+            0xef, 0x4d, 0x59, 0xa1, 0x49, 0x46, 0x17, 0x59,
+            0x97, 0x47, 0x9d, 0xbc, 0x2d, 0x1a, 0x3c, 0xd8
         ];
         let result = hmac_sha256(key, message);
         assert_eq!(result, expected);
@@ -386,10 +390,8 @@ mod tests {
 def generateVectorModule : String :=
   "//! Vector operations extracted from Lean 4
 
-use std::vec::Vec;
-
 #[no_mangle]
-pub extern \"C\" fn vector_add(
+pub unsafe extern \"C\" fn vector_add(
     a: *const f64,
     b: *const f64,
     result: *mut f64,
@@ -411,7 +413,7 @@ pub extern \"C\" fn vector_add(
 }
 
 #[no_mangle]
-pub extern \"C\" fn vector_sub(
+pub unsafe extern \"C\" fn vector_sub(
     a: *const f64,
     b: *const f64,
     result: *mut f64,
@@ -433,7 +435,7 @@ pub extern \"C\" fn vector_sub(
 }
 
 #[no_mangle]
-pub extern \"C\" fn vector_smul(
+pub unsafe extern \"C\" fn vector_smul(
     a: *const f64,
     scalar: f64,
     result: *mut f64,
@@ -454,7 +456,7 @@ pub extern \"C\" fn vector_smul(
 }
 
 #[no_mangle]
-pub extern \"C\" fn vector_dot_product(
+pub unsafe extern \"C\" fn vector_dot_product(
     a: *const f64,
     b: *const f64,
     len: usize
@@ -480,21 +482,21 @@ mod tests {
 
     #[test]
     fn test_vector_add() {
-        let a = vec![1.0, 2.0, 3.0];
-        let b = vec![4.0, 5.0, 6.0];
-        let mut result = vec![0.0; 3];
+        let a = [1.0, 2.0, 3.0];
+        let b = [4.0, 5.0, 6.0];
+        let mut result = [0.0_f64; 3];
 
-        let res = vector_add(a.as_ptr(), b.as_ptr(), result.as_mut_ptr(), 3);
+        let res = unsafe { vector_add(a.as_ptr(), b.as_ptr(), result.as_mut_ptr(), 3) };
         assert_eq!(res, 0);
-        assert_eq!(result, vec![5.0, 7.0, 9.0]);
+        assert_eq!(result, [5.0, 7.0, 9.0]);
     }
 
     #[test]
     fn test_vector_dot_product() {
-        let a = vec![1.0, 2.0, 3.0];
-        let b = vec![4.0, 5.0, 6.0];
+        let a = [1.0, 2.0, 3.0];
+        let b = [4.0, 5.0, 6.0];
 
-        let result = vector_dot_product(a.as_ptr(), b.as_ptr(), 3);
+        let result = unsafe { vector_dot_product(a.as_ptr(), b.as_ptr(), 3) };
         assert_eq!(result, 32.0);
     }
 }"
@@ -503,10 +505,8 @@ mod tests {
 def generateMatrixModule : String :=
   "//! Matrix operations extracted from Lean 4
 
-use std::vec::Vec;
-
 #[no_mangle]
-pub extern \"C\" fn matrix_add(
+pub unsafe extern \"C\" fn matrix_add(
     a: *const f64,
     b: *const f64,
     result: *mut f64,
@@ -530,7 +530,7 @@ pub extern \"C\" fn matrix_add(
 }
 
 #[no_mangle]
-pub extern \"C\" fn matrix_multiply(
+pub unsafe extern \"C\" fn matrix_multiply(
     a: *const f64,
     b: *const f64,
     result: *mut f64,
@@ -546,10 +546,7 @@ pub extern \"C\" fn matrix_multiply(
     let b_slice = unsafe { std::slice::from_raw_parts(b, n * p) };
     let result_slice = unsafe { std::slice::from_raw_parts_mut(result, m * p) };
 
-    // Initialize result to zero
-    for i in 0..m * p {
-        result_slice[i] = 0.0;
-    }
+    result_slice.fill(0.0);
 
     // Perform matrix multiplication
     for i in 0..m {
@@ -564,7 +561,7 @@ pub extern \"C\" fn matrix_multiply(
 }
 
 #[no_mangle]
-pub extern \"C\" fn matrix_transpose(
+pub unsafe extern \"C\" fn matrix_transpose(
     input: *const f64,
     output: *mut f64,
     rows: usize,
@@ -592,25 +589,25 @@ mod tests {
 
     #[test]
     fn test_matrix_add() {
-        let a = vec![1.0, 2.0, 3.0, 4.0];
-        let b = vec![5.0, 6.0, 7.0, 8.0];
-        let mut result = vec![0.0; 4];
+        let a = [1.0, 2.0, 3.0, 4.0];
+        let b = [5.0, 6.0, 7.0, 8.0];
+        let mut result = [0.0_f64; 4];
 
-        let res = matrix_add(a.as_ptr(), b.as_ptr(), result.as_mut_ptr(), 2, 2);
+        let res = unsafe { matrix_add(a.as_ptr(), b.as_ptr(), result.as_mut_ptr(), 2, 2) };
         assert_eq!(res, 0);
-        assert_eq!(result, vec![6.0, 8.0, 10.0, 12.0]);
+        assert_eq!(result, [6.0, 8.0, 10.0, 12.0]);
     }
 
     #[test]
     fn test_matrix_multiply() {
-        let a = vec![1.0, 2.0, 3.0, 4.0];
-        let b = vec![5.0, 6.0, 7.0, 8.0];
-        let mut result = vec![0.0; 4];
+        let a = [1.0, 2.0, 3.0, 4.0];
+        let b = [5.0, 6.0, 7.0, 8.0];
+        let mut result = [0.0_f64; 4];
 
-        let res = matrix_multiply(a.as_ptr(), b.as_ptr(), result.as_mut_ptr(), 2, 2, 2);
+        let res = unsafe { matrix_multiply(a.as_ptr(), b.as_ptr(), result.as_mut_ptr(), 2, 2, 2) };
         assert_eq!(res, 0);
         // Expected: [[19, 22], [43, 50]]
-        assert_eq!(result, vec![19.0, 22.0, 43.0, 50.0]);
+        assert_eq!(result, [19.0, 22.0, 43.0, 50.0]);
     }
 }"
 
@@ -620,6 +617,8 @@ def generateCompleteRustLibrary : String :=
 //!
 //! This library contains Rust implementations extracted from Lean 4 code.
 //! All functions are designed to be called from C/C++ code.
+
+#![allow(clippy::missing_safety_doc)]
 
 pub mod sha256;
 pub mod hmac;

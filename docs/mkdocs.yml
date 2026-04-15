@@ -1,10 +1,10 @@
 site_name: Lean Toolchain
-site_description: Cryptographic, math, and data-parsing primitives formally proven in Lean 4
+site_description: Cryptographic and mathematical primitives in Lean 4
 site_author: Lean Toolchain Contributors
 site_url: https://lean-toolchain.github.io
 
-repo_name: lean-toolchain/lean-toolchain
-repo_url: https://github.com/lean-toolchain/lean-toolchain
+repo_name: SentinelOps-CI/lean-toolchain
+repo_url: https://github.com/SentinelOps-CI/lean-toolchain
 edit_uri: edit/main/docs/
 
 theme:
@@ -25,32 +25,22 @@ theme:
 
 plugins:
   - search
-  - mkdocstrings:
-      default_handler: python
-      handlers:
-        python:
-          paths: [../LeanToolchain]
-          options:
-            show_source: true
-            show_root_heading: true
 
 nav:
   - Home: index.md
   - Getting Started:
-    - Installation: getting-started/installation.md
-    - Quick Start: getting-started/quick-start.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quick-start.md
   - API Reference:
-    - Crypto: api/crypto.md
-    - Math: api/math.md
-    - Data Parsing: api/data-parsing.md
+      - Crypto: api/crypto.md
+      - Math: api/math.md
+  - Topics:
+      - Vector implementation: vector-implementation.md
   - Development:
-    - Contributing: development/contributing.md
-    - Style Guide: development/style-guide.md
-    - Extraction: development/extraction.md
-  - Examples:
-    - SHA-256: examples/sha256.md
-    - HMAC: examples/hmac.md
-    - CSV Parsing: examples/csv-parsing.md
+      - Contributing: development/contributing.md
+      - CI overview: development/ci.md
+      - Style Guide: development/style-guide.md
+      - Rust code generation: development/extraction.md
 
 markdown_extensions:
   - admonition
@@ -58,4 +48,4 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tabbed
   - toc:
-      permalink: true 
+      permalink: true

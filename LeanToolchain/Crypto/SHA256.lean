@@ -1,4 +1,5 @@
 import LeanToolchain.Crypto.Utils
+import Init.Data.Array.Lemmas
 
 /-!
 # SHA-256 Implementation
@@ -48,18 +49,37 @@ def sha256Sigma0' (x : UInt32) : UInt32 :=
 def sha256Sigma1' (x : UInt32) : UInt32 :=
   rotateRight32 x 17 ^^^ rotateRight32 x 19 ^^^ shiftRight32 x 10
 
-/-- SHA-256 message schedule -/
+/-- One step of the SHA-256 message schedule (FIPS 180-4). -/
+def sha256MessageScheduleAux (w : Array UInt32) (i : Nat) : Array UInt32 :=
+  if i >= 64 then w
+  else
+    let w16 := w[i - 16]!
+    let w7 := w[i - 7]!
+    let w2 := w[i - 2]!
+    let w15 := w[i - 15]!
+    let newWord := w16 + sha256Sigma0' w15 + w7 + sha256Sigma1' w2
+    sha256MessageScheduleAux (w.push newWord) (i + 1)
+
+/-- SHA-256 message schedule for one 512-bit block (16 big-endian `UInt32` words). -/
 def sha256MessageSchedule (block : Array UInt32) : Array UInt32 :=
-  let rec aux (w : Array UInt32) (i : Nat) : Array UInt32 :=
-    if i >= 64 then w
-    else
-      let w16 := w[i - 16]!
-      let w7 := w[i - 7]!
-      let w2 := w[i - 2]!
-      let w15 := w[i - 15]!
-      let newWord := w16 + sha256Sigma0' w15 + w7 + sha256Sigma1' w2
-      aux (w.push newWord) (i + 1)
-  aux block 16
+  sha256MessageScheduleAux block 16
+
+theorem sha256MessageScheduleAux_size (w : Array UInt32) (i : Nat) (hw : w.size = i)
+    (hi : 16 ≤ i ∧ i ≤ 64) : (sha256MessageScheduleAux w i).size = 64 := by
+  by_cases hlt : i < 64
+  · rw [sha256MessageScheduleAux]
+    simp [show ¬i ≥ 64 from Nat.not_le_of_gt hlt]
+    refine sha256MessageScheduleAux_size (w.push _) (i + 1) ?_ ?_
+    · simp [Array.size_push, hw]
+    · constructor <;> omega
+  · have ie : i = 64 := by omega
+    subst ie
+    simp [sha256MessageScheduleAux, hw]
+
+/-- With a full 16-word block, the schedule has length 64. -/
+theorem sha256MessageSchedule_length (block : Array UInt32) (h : block.size = 16) :
+    (sha256MessageSchedule block).size = 64 := by
+  simp [sha256MessageSchedule, h, sha256MessageScheduleAux_size]
 
 /-- SHA-256 compression function -/
 def sha256Compress (hash : Array UInt32) (block : Array UInt32) : Array UInt32 :=
@@ -93,19 +113,53 @@ def sha256ProcessBlock (hash : Array UInt32) (block : ByteArray) : Array UInt32 
   else
     hash -- Return original hash if block is invalid
 
+theorem sha256InitialHash_size : sha256InitialHash.size = 8 := rfl
+
+theorem sha256Compress_size (hash : Array UInt32) (block : Array UInt32) (_ : hash.size = 8) :
+    (sha256Compress hash block).size = 8 := by
+  simp [sha256Compress]
+
+theorem sha256ProcessBlock_size (hash : Array UInt32) (block : ByteArray) (hh : hash.size = 8) :
+    (sha256ProcessBlock hash block).size = 8 := by
+  simp [sha256ProcessBlock, hh, sha256Compress_size]
+  split_ifs <;> simp [sha256Compress_size, *]
+
+/-- Iterate over 64-byte blocks using structural recursion on a fuel (upper bound on steps). -/
+def sha256LoopFuel (fuel : Nat) (padded : ByteArray) (hash : Array UInt32) (offset : Nat) : Array UInt32 :=
+  match fuel with
+  | 0 => hash
+  | fuel' + 1 =>
+    if offset ≥ padded.size then hash
+    else if offset + 64 ≤ padded.size then
+      sha256LoopFuel fuel' padded
+        (sha256ProcessBlock hash (padded.extract offset (offset + 64))) (offset + 64)
+    else hash
+
+theorem sha256LoopFuel_size (fuel : Nat) (padded : ByteArray) (hash : Array UInt32) (offset : Nat)
+    (hh : hash.size = 8) : (sha256LoopFuel fuel padded hash offset).size = 8 := by
+  induction fuel generalizing hash offset with
+  | zero => simp [sha256LoopFuel, hh]
+  | succ fuel ih =>
+    simp [sha256LoopFuel]
+    split_ifs with h1 h2
+    · exact hh
+    · exact ih (sha256ProcessBlock hash (padded.extract offset (offset + 64))) (offset + 64)
+        (sha256ProcessBlock_size _ _ hh)
+    · exact hh
+
+/-- Each SHA-256 digest is 32 bytes (8 `UInt32` words × 4 bytes), assuming the main loop returns 8 words. -/
+theorem sha256_output_bytes (finalHash : Array UInt32) (h : finalHash.size = 8) :
+    (ByteArray.mk (wordsToBytes (Array.toList finalHash)).toArray).size = 32 := by
+  simp [ByteArray.size, wordsToBytes_length, Array.length_toList, h, Nat.mul_add]
+
 /-- Main SHA-256 hash function -/
 def sha256 (message : ByteArray) : ByteArray :=
   let padded := padMessage message
-  let rec aux (hash : Array UInt32) (offset : Nat) : Array UInt32 :=
-    if offset >= padded.size then hash
-    else if offset + 64 <= padded.size then
-      let block := padded.extract offset (offset + 64)
-      let newHash := sha256ProcessBlock hash block
-      aux newHash (offset + 64)
-    else
-      hash -- Return current hash if remaining bytes < 64
-  let finalHash := aux sha256InitialHash 0
-  ByteArray.mk (listToArray (wordsToBytes (Array.toList finalHash)))
+  let finalHash := sha256LoopFuel padded.size padded sha256InitialHash 0
+  ByteArray.mk (wordsToBytes (Array.toList finalHash)).toArray
+
+theorem sha256_size (msg : ByteArray) : (sha256 msg).size = 32 := by
+  simp [sha256, sha256_output_bytes, sha256LoopFuel_size, sha256InitialHash_size]
 
 /-- Convenience function to hash a string -/
 def sha256String (s : String) : String :=
@@ -114,24 +168,5 @@ def sha256String (s : String) : String :=
 /-- Verify SHA-256 hash against expected value -/
 def sha256Verify (message : ByteArray) (expected : String) : Bool :=
   bytesToHex (sha256 message) == expected
-
-/-- The message schedule produces 64 words -/
-theorem sha256MessageSchedule_length (block : Array UInt32) :
-  (sha256MessageSchedule block).size = 64 := by
-  -- The schedule is built by pushing 48 words to the initial 16
-  -- so the final size is 16 + 48 = 64
-  -- This follows from the construction in the aux function
-  sorry
-
-/-- The first 16 words of the message schedule are the input block -/
-theorem sha256MessageSchedule_first16 (block : Array UInt32) (i : Nat) (h : i < 16) :
-  (sha256MessageSchedule block)[i] = block[i] := by
-  -- By construction, the first 16 words are unchanged
-  sorry
-
-/-- The output of sha256 is always 32 bytes -/
-theorem sha256_output_length (msg : ByteArray) : (sha256 msg).size = 32 := by
-  -- The final hash is 8 words (UInt32), each 4 bytes, so 8*4 = 32
-  sorry
 
 end LeanToolchain.Crypto

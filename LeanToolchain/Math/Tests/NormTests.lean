@@ -132,11 +132,11 @@ def testPythagorean : IO Unit := do
   IO.println s!"  ||v1 + v2||² = {magSqSum}"
   IO.println s!"  ||v1||² + ||v2||² = {magSq1} + {magSq2}"
 
-/-- Test matrix norms -/
-def testMatrixNorms : IO Unit := do
+/-- Smoke placeholder for matrix norms (name distinct from `MatrixTests.testMatrixNorms`). -/
+def testNormMatrixSmoke : IO Unit := do
   IO.println "Testing matrix norms..."
 
-  let mat := Matrix.zero
+  let _mat : Matrix Nat 2 2 := Matrix.zero
   -- Note: Would need proper matrix construction and norm calculation
   IO.println s!"Matrix norms test completed"
 
@@ -161,7 +161,7 @@ def runAllNormTests : IO Unit := do
   IO.println ""
   testPythagorean
   IO.println ""
-  testMatrixNorms
+  testNormMatrixSmoke
   IO.println "=== Tests Complete ==="
 
 end LeanToolchain.Math.Tests

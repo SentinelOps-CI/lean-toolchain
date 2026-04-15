@@ -157,7 +157,7 @@ def testVectorConversion : IO Unit := do
   IO.println "Testing vector conversion..."
 
   let data := [1, 2, 3, 4, 5]
-  let v := Vec.fromList data 5 (by simp)
+  let v := Vec.mk' data (by rfl)
 
   IO.println s!"Original list: {data}"
   IO.println s!"Converted vector: {v.data}"
@@ -276,14 +276,8 @@ def testEdgeCases : IO Unit := do
 def testPerformance : IO Unit := do
   IO.println "Testing performance..."
 
-  -- Create larger vectors for performance testing
-  let rec createVector (n : Nat) (acc : Vec Nat 0) : Vec Nat n :=
-    match n with
-    | 0 => acc
-    | n + 1 => createVector n (Vec.cons n acc)
-
-  let v10 := createVector 10 Vec.nil
-  let v20 := createVector 20 Vec.nil
+  let v10 : Vec Nat 10 := Vec.mk' (List.range 10) (by simp [List.length_range])
+  let v20 : Vec Nat 20 := Vec.mk' (List.range 20) (by simp [List.length_range])
 
   IO.println s!"Vector of size 10: {v10.data.length}"
   IO.println s!"Vector of size 20: {v20.data.length}"
