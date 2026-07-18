@@ -79,6 +79,10 @@ def Vec.cross {α : Type} [Sub α] [Mul α] {v1 v2 : Vec α 3} : Vec α 3 :=
 
 theorem Vec.nil_empty {α : Type} : (Vec.nil : Vec α 0).data = [] := rfl
 
+/-- info: [] -/
+#guard_msgs in
+#eval (Vec.nil : Vec Nat 0).data
+
 theorem Vec.cons_length {α : Type} {n : Nat} (x : α) (v : Vec α n) :
     (Vec.cons x v).data.length = n + 1 := by rw [Vec.cons, List.length_cons, v.length_eq]
 

@@ -34,7 +34,7 @@ Lean Toolchain is a small, opinionated library for teaching and experimentation:
 | Area | Contents |
 | --- | --- |
 | **Cryptography** | SHA-256 and HMAC-SHA256 on `ByteArray`, byte and hex helpers, NIST and RFC 4231 vectors in `LeanToolchain/Crypto/Tests`. |
-| **Discrete math** | Length-indexed `Vec`, row–column `Matrix`, structural lemmas; real-valued norms (`ℝ`, `sqrt`) in `Norm.lean` via mathlib. |
+| **Discrete math** | Length-indexed `Vec`, row–column `Matrix` with Bareiss determinant, Gaussian rank, Gauss–Jordan inverse; real-valued norms (`ℝ`, `sqrt`) and operator 2-norm in `Norm.lean` via mathlib. |
 | **Rust artifacts** | `lake exe extract` writes `rust/` from `LeanToolchain/Extraction` (template emission, not Lean term extraction). Integration tests live in `rust/tests/`. |
 | **Quality bar** | No `sorry` under `LeanToolchain/` by policy (`scripts/check_sorry.sh`); local CI runs Lean and Rust gates (see [docs/development/ci.md](docs/development/ci.md)). |
 

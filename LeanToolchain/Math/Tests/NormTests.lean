@@ -1,144 +1,120 @@
 import LeanToolchain.Math.Norm
 import LeanToolchain.Math.Vector
+import LeanToolchain.Math.Matrix
+import Mathlib.Data.Real.Basic
 import Init.Data.Nat.Basic
 
 /-!
 # Norm Tests
 
-This module contains comprehensive tests for the Norm implementation,
-including norm calculations, inequalities, and geometric properties.
+Smoke and structural checks for vector magnitudes and matrix norms.
+Real-valued norms are noncomputable; we validate discrete surrogates (`magSq`)
+and that norm definitions are well-typed / non-negative in spirit via magSq laws.
 -/
 
 namespace LeanToolchain.Math.Tests
 
-/-- Test L2 norm calculations -/
+private def expect [BEq α] [ToString α] (label : String) (got expected : α) : IO Unit := do
+  if got == expected then
+    IO.println s!"  PASS {label}"
+  else
+    throw <| IO.userError s!"FAIL {label}: got {got}, expected {expected}"
+
+private def expectTrue (label : String) (b : Bool) : IO Unit := do
+  if b then
+    IO.println s!"  PASS {label}"
+  else
+    throw <| IO.userError s!"FAIL {label}"
+
+/-- Test L2 magnitude squared (computable stand-in for norm2) -/
 def testL2Norm : IO Unit := do
-  IO.println "Testing L2 norm calculations..."
+  IO.println "Testing L2 magnitude squared..."
+  let v1 := Vec.cons (3 : Int) (Vec.cons 4 Vec.nil)
+  let v2 := Vec.cons (1 : Int) (Vec.cons 1 (Vec.cons 1 Vec.nil))
+  expect "magSq 3-4-5" v1.magSq 25
+  expect "magSq 1-1-1" v2.magSq 3
 
-  -- Test simple vectors
-  let v1 := Vec.cons 3 (Vec.cons 4 Vec.nil)
-  let v2 := Vec.cons 1 (Vec.cons 1 (Vec.cons 1 Vec.nil))
-
-  -- Note: norm2 requires Sqrt instance, so we test magnitude squared instead
-  let magSq1 := v1.magSq
-  let magSq2 := v2.magSq
-
-  IO.println s!"Magnitude squared of {v1.data}: {magSq1}"
-  IO.println s!"Magnitude squared of {v2.data}: {magSq2}"
-
-/-- Test L1 norm calculations -/
+/-- Test L1-style absolute fold on integers -/
 def testL1Norm : IO Unit := do
-  IO.println "Testing L1 norm calculations..."
+  IO.println "Testing L1 absolute sum (discrete)..."
+  let v := Vec.cons (3 : Int) (Vec.cons (-4) (Vec.cons 2 Vec.nil))
+  let l1 := (v.data.map Int.natAbs).foldl (· + ·) 0
+  expect "L1 abs sum" l1 9
 
-  let v := Vec.cons 3 (Vec.cons (-4) (Vec.cons 2 Vec.nil))
-  -- Note: norm1 requires Abs instance
-  IO.println s!"L1 norm test for vector: {v.data}"
-
-/-- Test L∞ norm calculations -/
+/-- Test L∞-style max abs on integers -/
 def testLInfNorm : IO Unit := do
-  IO.println "Testing L∞ norm calculations..."
+  IO.println "Testing L∞ max abs (discrete)..."
+  let v := Vec.cons (3 : Int) (Vec.cons (-5) (Vec.cons 2 Vec.nil))
+  let linf := (v.data.map Int.natAbs).foldl max 0
+  expect "L∞ max abs" linf 5
 
-  let v := Vec.cons 3 (Vec.cons (-5) (Vec.cons 2 Vec.nil))
-  -- Note: normInf requires Max and Abs instances
-  IO.println s!"L∞ norm test for vector: {v.data}"
-
-/-- Test distance calculations -/
+/-- Test distance squared -/
 def testDistance : IO Unit := do
-  IO.println "Testing distance calculations..."
+  IO.println "Testing distance squared..."
+  let v1 := Vec.cons (1 : Int) (Vec.cons 2 Vec.nil)
+  let v2 := Vec.cons (4 : Int) (Vec.cons 6 Vec.nil)
+  expect "dist²" (v1.sub v2).magSq 25
 
-  let v1 := Vec.cons 1 (Vec.cons 2 Vec.nil)
-  let v2 := Vec.cons 4 (Vec.cons 6 Vec.nil)
-
-  -- Note: distance requires Sqrt instance
-  let diff := v1.sub v2
-  let magSq := diff.magSq
-  IO.println s!"Distance squared between {v1.data} and {v2.data}: {magSq}"
-
-/-- Test angle calculations -/
+/-- Test orthogonality via dot product -/
 def testAngle : IO Unit := do
-  IO.println "Testing angle calculations..."
+  IO.println "Testing orthogonal vectors..."
+  let v1 := Vec.cons (1 : Int) (Vec.cons 0 Vec.nil)
+  let v2 := Vec.cons (0 : Int) (Vec.cons 1 Vec.nil)
+  expect "dot orthogonal" (v1.dot v2) 0
 
-  let v1 := Vec.cons 1 (Vec.cons 0 Vec.nil)
-  let v2 := Vec.cons 0 (Vec.cons 1 Vec.nil)
-
-  let dot := v1.dot v2
-  IO.println s!"Dot product of {v1.data} and {v2.data}: {dot}"
-
-  -- Note: cosAngle requires Sqrt and Div instances
-  IO.println s!"Cosine of angle test completed"
-
-/-- Test triangle inequality -/
+/-- Test triangle inequality on magSq (weak form: not always true for squares) -/
 def testTriangleInequality : IO Unit := do
-  IO.println "Testing triangle inequality..."
-
-  let v1 := Vec.cons 3 (Vec.cons 4 Vec.nil)
-  let v2 := Vec.cons 1 (Vec.cons 2 Vec.nil)
-
+  IO.println "Testing vector addition magnitudes..."
+  let v1 := Vec.cons (3 : Int) (Vec.cons 4 Vec.nil)
+  let v2 := Vec.cons (1 : Int) (Vec.cons 2 Vec.nil)
   let sum := v1.add v2
-  let magSq1 := v1.magSq
-  let magSq2 := v2.magSq
-  let magSqSum := sum.magSq
+  expect "magSq sum" sum.magSq 52
+  expect "magSq v1" v1.magSq 25
+  expect "magSq v2" v2.magSq 5
 
-  IO.println s!"Triangle inequality test:"
-  IO.println s!"  ||v1 + v2||² = {magSqSum}"
-  IO.println s!"  ||v1||² = {magSq1}, ||v2||² = {magSq2}"
-
-/-- Test Cauchy-Schwarz inequality -/
+/-- Test Cauchy-Schwarz numerically on integers: (dot)² ≤ magSq₁ * magSq₂ -/
 def testCauchySchwarz : IO Unit := do
-  IO.println "Testing Cauchy-Schwarz inequality..."
-
-  let v1 := Vec.cons 1 (Vec.cons 2 (Vec.cons 3 Vec.nil))
-  let v2 := Vec.cons 4 (Vec.cons 5 (Vec.cons 6 Vec.nil))
-
+  IO.println "Testing Cauchy-Schwarz (integer form)..."
+  let v1 := Vec.cons (1 : Int) (Vec.cons 2 (Vec.cons 3 Vec.nil))
+  let v2 := Vec.cons (4 : Int) (Vec.cons 5 (Vec.cons 6 Vec.nil))
   let dot := v1.dot v2
-  let magSq1 := v1.magSq
-  let magSq2 := v2.magSq
+  let lhs := dot * dot
+  let rhs := v1.magSq * v2.magSq
+  expectTrue "Cauchy-Schwarz" (decide (lhs ≤ rhs))
+  expect "dot" dot 32
 
-  IO.println s!"Cauchy-Schwarz test:"
-  IO.println s!"  |v1 · v2| = {dot}"
-  IO.println s!"  ||v1||² = {magSq1}, ||v2||² = {magSq2}"
-
-/-- Test parallelogram law -/
+/-- Test parallelogram law on magSq -/
 def testParallelogramLaw : IO Unit := do
   IO.println "Testing parallelogram law..."
+  let v1 := Vec.cons (1 : Int) (Vec.cons 2 Vec.nil)
+  let v2 := Vec.cons (3 : Int) (Vec.cons 4 Vec.nil)
+  let lhs := (v1.add v2).magSq + (v1.sub v2).magSq
+  let rhs := 2 * (v1.magSq + v2.magSq)
+  expect "parallelogram" lhs rhs
 
-  let v1 := Vec.cons 1 (Vec.cons 2 Vec.nil)
-  let v2 := Vec.cons 3 (Vec.cons 4 Vec.nil)
-
-  let sum := v1.add v2
-  let diff := v1.sub v2
-  let magSqSum := sum.magSq
-  let magSqDiff := diff.magSq
-  let magSq1 := v1.magSq
-  let magSq2 := v2.magSq
-
-  IO.println s!"Parallelogram law test:"
-  IO.println s!"  ||v1 + v2||² + ||v1 - v2||² = {magSqSum} + {magSqDiff}"
-  IO.println s!"  2(||v1||² + ||v2||²) = 2({magSq1} + {magSq2})"
-
-/-- Test Pythagorean theorem -/
+/-- Test Pythagorean theorem for orthogonal vectors -/
 def testPythagorean : IO Unit := do
   IO.println "Testing Pythagorean theorem..."
+  let v1 := Vec.cons (1 : Int) (Vec.cons 0 Vec.nil)
+  let v2 := Vec.cons (0 : Int) (Vec.cons 1 Vec.nil)
+  expect "Pythagoras" (v1.add v2).magSq (v1.magSq + v2.magSq)
 
-  let v1 := Vec.cons 1 (Vec.cons 0 Vec.nil)
-  let v2 := Vec.cons 0 (Vec.cons 1 Vec.nil)
-
-  let sum := v1.add v2
-  let magSqSum := sum.magSq
-  let magSq1 := v1.magSq
-  let magSq2 := v2.magSq
-
-  IO.println s!"Pythagorean theorem test:"
-  IO.println s!"  ||v1 + v2||² = {magSqSum}"
-  IO.println s!"  ||v1||² + ||v2||² = {magSq1} + {magSq2}"
-
-/-- Smoke placeholder for matrix norms (name distinct from `MatrixTests.testMatrixNorms`). -/
-def testNormMatrixSmoke : IO Unit := do
-  IO.println "Testing matrix norms..."
-
-  let _mat : Matrix Nat 2 2 := Matrix.zero
-  -- Note: Would need proper matrix construction and norm calculation
-  IO.println s!"Matrix norms test completed"
+/-- Matrix Frobenius surrogate: sum of squares of entries -/
+def testMatrixNormSurrogate : IO Unit := do
+  IO.println "Testing matrix entrywise energy (Frobenius² surrogate)..."
+  let mat : Matrix Int 2 2 :=
+    ⟨Vec.mk'
+      [Vec.mk' [3, 0] (by simp), Vec.mk' [0, 4] (by simp)]
+      (by simp)⟩
+  let energy :=
+    (mat.get ⟨0, by decide⟩ ⟨0, by decide⟩)^2 +
+    (mat.get ⟨0, by decide⟩ ⟨1, by decide⟩)^2 +
+    (mat.get ⟨1, by decide⟩ ⟨0, by decide⟩)^2 +
+    (mat.get ⟨1, by decide⟩ ⟨1, by decide⟩)^2
+  expect "frobenius energy" energy 25
+  expect "rank diag" mat.rank 2
+  -- Real operator / Frobenius norms are noncomputable; the discrete energy above
+  -- matches ‖diag(3,4)‖_F² = 25, i.e. the same quantity `frobeniusNorm` squares.
 
 /-- Run all norm tests -/
 def runAllNormTests : IO Unit := do
@@ -161,7 +137,7 @@ def runAllNormTests : IO Unit := do
   IO.println ""
   testPythagorean
   IO.println ""
-  testNormMatrixSmoke
-  IO.println "=== Tests Complete ==="
+  testMatrixNormSurrogate
+  IO.println "=== Norm Tests Complete ==="
 
 end LeanToolchain.Math.Tests

@@ -639,6 +639,33 @@ let det := mat.det2x2
 -- det is -2 (1*4 - 2*3)
 ```
 
+#### `Matrix.det` / `Matrix.detLaplace`
+
+- `det` — Bareiss fraction-free elimination, `O(n³)`. Requires `BEq` and `Div` (field-like coefficients; prefer `Rat` / floats for inversion-style work).
+- `detLaplace` — Laplace expansion along the first row. Correct on rings without division; cost `O(n!)`. Prefer for tiny matrices or ring-theoretic arguments.
+
+#### `Matrix.rank`
+
+Gaussian elimination with partial pivoting over a field-like type (`BEq` + `Div`). Returns the number of nonzero pivots.
+
+#### `Matrix.inv`
+
+Gauss–Jordan inversion. Returns `none` when a pivot cannot be found (singular / numerically degenerate). Prefer coefficient types where division is exact (e.g. `Rat`); over `Int`, truncated division can lose information unless the matrix is unimodular.
+
+#### `Matrix.eigenvalues2x2` / `charPoly2x2` / `charPoly3x3`
+
+Closed-form eigenvalues of a `2 × 2` matrix given a square-root operation. Monic characteristic polynomials are available for `2 × 2` and `3 × 3` (highest-degree coefficient first).
+
+Real wrappers in `Norm.lean`:
+
+- `eigenvalues1x1Real` / `eigenvalues2x2Real` — exact
+- `eigenvaluesReal` — exact for `n ≤ 2`; for `n ≥ 3` returns a singleton with the power-iteration dominant estimate (not a full spectrum)
+- `operatorNorm` — induced 2-norm via sqrt of the largest eigenvalue of `AᵀA`
+
+#### `Matrix.map` and exact inversion over `Rat`
+
+`Matrix.map` lifts coefficients (e.g. `Int` to `Rat`). Prefer `mat.map (↑ : Int → Rat) |>.inv` for exact inverses; Gauss–Jordan over `Int` uses truncated division and is only reliable for unit pivots.
+
 ## Mathematical properties (status)
 
 Many **expected** identities (dot product laws, full matrix ring laws, and so on) are standard algebraically but are **not** all stated or proved in the current `LeanToolchain/Math` files. Treat `Vector.lean` and `Matrix.lean` as the source of truth for what is actually in the library today; the lists below are **design intent**, not a guarantee of existing `theorem` declarations.
@@ -650,16 +677,18 @@ Many **expected** identities (dot product laws, full matrix ring laws, and so on
 
 ### Matrix (typical goals)
 
-- Matrix addition should behave as a componentwise monoid where instances allow.
-- Multiplication and distributivity are defined operationally; separate lemma modules may grow over time.
+- Matrix addition behaves as a componentwise monoid where instances allow (see proved lemmas).
+- Multiplication, determinant, rank, and inverse are defined operationally; algebraic identities may be added incrementally.
 
 ## Performance Characteristics
 
-- **Vector Operations**: O(n) time complexity where n is the vector length
-- **Matrix Addition/Subtraction**: O(m×n) time complexity
-- **Matrix Multiplication**: O(m×n×p) time complexity for m×n × n×p matrices
-- **Matrix Transpose**: O(m×n) time complexity
-- **Memory Usage**: Linear in the size of the data structures
+- **Vector Operations**: O(n) where n is the vector length
+- **Matrix Addition/Subtraction**: O(m×n)
+- **Matrix Multiplication**: O(m×n×p); columns of the right factor are precomputed once
+- **Determinant (`det`)**: O(n³) Bareiss; `detLaplace` is O(n!)
+- **Rank / Inverse**: O(min(m,n)·m·n) style Gaussian / Gauss–Jordan
+- **Matrix Transpose**: O(m×n)
+- **Operator 2-norm**: exact for 1–2 columns; power iteration on `AᵀA` for wider matrices
 
 ## Type Safety
 
@@ -667,15 +696,15 @@ The implementation provides strong type safety:
 
 - **Dimension Checking**: All operations preserve vector and matrix dimensions
 - **Index Bounds**: All indexing operations use `Fin` types to ensure bounds safety
-- **Type Constraints**: Operations require appropriate typeclass instances (Add, Mul, etc.)
+- **Type Constraints**: Operations require appropriate typeclass instances (Add, Mul, Div, BEq, etc.)
 
 ## Testing
 
-Executable smoke tests live under `LeanToolchain/Math/Tests/` (vectors, matrices, norms) and are included in the combined `lake test` driver (`LeanToolchain/Tests/Unified.lean`). They print examples and basic checks; they are **not** a substitute for a full random-testing or benchmarking harness.
+Executable checks under `LeanToolchain/Math/Tests/` assert concrete values (determinants, products, rank, unimodular inverses, Cauchy–Schwarz on integers) and are driven by `lake test` / `lake exe mathTests`.
 
 ## Rust helpers (code generation)
 
-Floating-point vector and matrix **FFI-shaped** helpers are emitted into the same `rust/` crate as the crypto modules when you run `lake exe extract`. They exist for benchmarks and experiments; they are **not** Lean-term extraction and are not covered by the same theorems as the Lean `Vec` / `Matrix` types.
+Floating-point vector and matrix **FFI-shaped** helpers are emitted into the same `rust/` crate as the crypto modules when you run `lake exe extract`. The matrix module includes add, multiply (ikj loop), transpose, Bareiss `matrix_det`, Gaussian `matrix_rank`, and Gauss–Jordan `matrix_inv`, with unit tests mirroring Lean vectors. They are **not** Lean-term extraction.
 
 ```bash
 lake exe extract

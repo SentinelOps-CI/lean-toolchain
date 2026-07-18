@@ -76,21 +76,19 @@ def hmacSha256Hex (keyHex : String) (messageHex : String) : Option String :=
   | _, _ => none
 
 /-!
-## Security Properties
+## Security Properties (informal)
 
-The HMAC construction provides the following security properties:
+Standard cryptography texts attribute the following to HMAC when the underlying hash meets
+appropriate assumptions (collision resistance / PRF-like behavior of the compression function):
 
-1. **PRF Property**: HMAC is a pseudorandom function assuming the underlying hash function is collision-resistant
-2. **MAC Security**: HMAC provides unforgeable message authentication codes
-3. **Length Extension Resistance**: HMAC is resistant to length extension attacks
+1. **PRF Property**: HMAC behaves as a pseudorandom function under those assumptions
+2. **MAC Security**: unforgeability for message authentication
+3. **Length Extension Resistance**: the outer keyed hash structure resists naive length-extension
 
-### Formal Proofs (TODO)
-
-The following properties should be formally proven:
-
-- HMAC is a PRF assuming SHA-256 is collision-resistant
-- HMAC provides existential unforgeability under chosen message attacks
-- HMAC is resistant to length extension attacks
+This repository proves **structural** facts about the Lean definitions (key-preparation sizes,
+determinism of verification helpers, and related lemmas). It does **not** formalize
+cryptographic game-based security (PRF / EUF-CMA). Those results live in dedicated verified-crypto
+developments and are out of scope here.
 -/
 
 /-!

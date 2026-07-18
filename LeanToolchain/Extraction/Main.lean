@@ -209,6 +209,15 @@ fn matrix_benchmark(c: &mut Criterion) {
             }
         })
     });
+
+    let n = 32usize;
+    let dense: Vec<f64> = (0..n * n).map(|i| (i as f64) * 0.017 - 1.0).collect();
+    c.bench_function(\"matrix_det_32\", |bencher| {
+        bencher.iter(|| unsafe { black_box(matrix_det(dense.as_ptr(), n)) })
+    });
+    c.bench_function(\"matrix_rank_32\", |bencher| {
+        bencher.iter(|| unsafe { black_box(matrix_rank(dense.as_ptr(), n, n)) })
+    });
 }
 
 criterion_group!(benches, matrix_benchmark);

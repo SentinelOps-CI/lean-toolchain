@@ -34,3 +34,12 @@ The HTML output defaults to `site/` relative to the current working directory un
 ## Toolchain
 
 The Lean release is pinned in `lean-toolchain`; **mathlib** is pinned in `lakefile.lean` and must stay compatible with that Lean version.
+
+## Library status (honest)
+
+| Area | Status |
+| --- | --- |
+| Crypto (SHA-256 / HMAC) | Executable Lean definitions + structural lemmas; NIST/RFC vectors in Lean and Rust |
+| Vectors / matrices | Dimension-indexed types; Bareiss det, Gaussian rank, Gauss–Jordan inverse; no general eigensolver |
+| Real norms | mathlib `ℝ` norms; operator 2-norm exact for 1–2 columns, power iteration otherwise |
+| Rust `rust/` | Template-generated parallel implementations + Criterion benches; not proof extraction |

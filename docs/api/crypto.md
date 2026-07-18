@@ -52,9 +52,9 @@ Common helpers include `stringToBytes`, `bytesToHex`, `hexToBytes`, `padMessage`
 
 ## Testing
 
-Executable tests live under `LeanToolchain/Crypto/Tests/` and are run from the combined driver configured for `lake test` (see `LeanToolchain/Tests/Unified.lean`). They include NIST SHA-256 strings and RFC 4231 HMAC cases.
+Executable tests live under `LeanToolchain/Crypto/Tests/` and are run from the combined driver configured for `lake test` (see `LeanToolchain/Tests/Unified.lean`). They include NIST SHA-256 strings and RFC 4231 HMAC cases and **abort the process** on any vector mismatch (CI-hard failure, not print-only).
 
-Lean-side timing experiments (if any) are wired through `lake exe benchmarks` from `LeanToolchain/Benchmarks/`; they are separate from the Rust Criterion stubs under `rust/benches/`.
+Lean-side timing experiments (if any) are wired through `lake exe benchmarks` from `LeanToolchain/Benchmarks/`; they are separate from the Rust Criterion benches under `rust/benches/`.
 
 ## Operational expectations (Lean vs generated Rust)
 

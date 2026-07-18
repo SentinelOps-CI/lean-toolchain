@@ -11,6 +11,10 @@ set_option checkBinderAnnotations false
 # Matrices with shape-level naturals
 
 Matrices are `Vec (Vec α n) m`: `m` rows, each of length `n`.
+
+Linear-algebra kernels that need division (`rank`, `inv`, Bareiss `det`) treat `α` as a
+field-like coefficient type (`BEq` for pivots). Prefer `Rat` or floating types for inversion;
+over `Int`, truncated division can discard information.
 -/
 
 namespace LeanToolchain.Math
@@ -25,6 +29,10 @@ def Matrix.mk' {α : Type} (data : List (List α)) (h : data.length = m)
   let rows := data.attach.map fun x : { r // r ∈ data } =>
     Vec.mk' x.val (h' x.val x.property)
   ⟨Vec.mk' rows (by rw [List.length_map, List.length_attach, h])⟩
+
+/-- Row-major list-of-lists view (length `m`, each inner length `n`). -/
+def Matrix.rowLists {α : Type} {m n : Nat} (mat : Matrix α m n) : List (List α) :=
+  mat.data.data.map (·.data)
 
 private lemma dropCol_length {α : Type} {n : Nat} (v : Vec α (n + 1)) (j : Fin (n + 1)) :
     (v.data.take j.val ++ v.data.drop (j.val + 1)).length = n := by
@@ -75,17 +83,145 @@ def Matrix.minor0 {α : Type} {n : Nat} (mat : Matrix α (n + 1) (n + 1)) (col :
     rw [List.length_map, List.length_drop, mat.data.length_eq]
     omega)⟩
 
-/-- Determinant (Laplace expansion along the first row for `n ≥ 1`; `0 × 0` is `1`). -/
-def Matrix.det {α : Type} [Add α] [Sub α] [Mul α] [Neg α] [OfNat α 0] [OfNat α 1] {n : Nat}
-    (mat : Matrix α n n) : α :=
+/-- Determinant via Laplace expansion along the first row. Correct on rings; cost `O(n!)`. -/
+def Matrix.detLaplace {α : Type} [Add α] [Sub α] [Mul α] [Neg α] [OfNat α 0] [OfNat α 1]
+    {n : Nat} (mat : Matrix α n n) : α :=
   match n with
   | 0 => 1
   | n' + 1 =>
     Fin.foldl (n' + 1) (fun acc jf =>
       let sign : α := if jf.val % 2 = 0 then 1 else -1
       let a0j := mat.get ⟨0, Nat.succ_pos _⟩ jf
-      let minorDet := Matrix.det (minor0 mat jf)
+      let minorDet := Matrix.detLaplace (minor0 mat jf)
       acc + sign * a0j * minorDet) 0
+
+/-! ## Dense helpers for elimination algorithms -/
+
+namespace Matrix.Elim
+variable {α : Type}
+
+@[inline] def isZero [BEq α] [OfNat α 0] (x : α) : Bool :=
+  x == (0 : α)
+
+def get (rows : List (List α)) (i j : Nat) (default : α) : α :=
+  (rows.getD i []).getD j default
+
+def set (rows : List (List α)) (i j : Nat) (x : α) : List (List α) :=
+  match rows[i]? with
+  | none => rows
+  | some row => rows.set i (row.set j x)
+
+def swapRows (rows : List (List α)) (i j : Nat) : List (List α) :=
+  if i == j then rows
+  else
+    match rows[i]?, rows[j]? with
+    | some ri, some rj => (rows.set i rj).set j ri
+    | _, _ => rows
+
+/-- First row index `≥ startRow` with a nonzero entry in column `col`. -/
+def findPivot [BEq α] [OfNat α 0] (rows : List (List α)) (startRow nrows col : Nat) :
+    Option Nat :=
+  Id.run do
+    let mut r := startRow
+    while r < nrows do
+      if !(isZero (get rows r col 0)) then
+        return some r
+      r := r + 1
+    return none
+
+/-- Bareiss fraction-free elimination determinant. `O(n³)` with exact division on integral domains. -/
+def detBareiss [BEq α] [Add α] [Sub α] [Mul α] [Div α] [Neg α] [OfNat α 0] [OfNat α 1]
+    (n : Nat) (rows0 : List (List α)) : α :=
+  if n == 0 then (1 : α)
+  else
+    Id.run do
+      let mut rows := rows0
+      let mut sign : α := 1
+      let mut prevPivot : α := 1
+      for k in [0:n] do
+        match findPivot rows k n k with
+        | none => return (0 : α)
+        | some piv =>
+          if piv != k then
+            rows := swapRows rows k piv
+            sign := -sign
+          let akk := get rows k k 0
+          if isZero akk then return (0 : α)
+          -- Update the trailing (n-k-1)² block
+          for i in [k+1:n] do
+            for j in [k+1:n] do
+              let numer := akk * get rows i j 0 - get rows i k 0 * get rows k j 0
+              let updated := numer / prevPivot
+              rows := set rows i j updated
+          prevPivot := akk
+      return sign * get rows (n - 1) (n - 1) 0
+
+/-- Row-reduce to upper echelon form; returns rank. -/
+def rankOf [BEq α] [OfNat α 0] [Div α] [Mul α] [Sub α]
+    (nrows ncols : Nat) (rows0 : List (List α)) : Nat :=
+  Id.run do
+    let mut rows := rows0
+    let mut rank : Nat := 0
+    let mut col : Nat := 0
+    let mut row : Nat := 0
+    while row < nrows && col < ncols do
+      match findPivot rows row nrows col with
+      | none =>
+        col := col + 1
+      | some piv =>
+        rows := swapRows rows row piv
+        let pivot := get rows row col 0
+        for i in [row+1:nrows] do
+          let factor := get rows i col 0 / pivot
+          if !(isZero factor) then
+            for j in [col:ncols] do
+              let v := get rows i j 0 - factor * get rows row j 0
+              rows := set rows i j v
+        rank := rank + 1
+        row := row + 1
+        col := col + 1
+    return rank
+
+/-- Gauss–Jordan inversion of an `n × n` matrix. Returns `none` if singular. -/
+def invert [BEq α] [OfNat α 0] [OfNat α 1] [Div α] [Mul α] [Sub α] [Add α]
+    (n : Nat) (rows0 : List (List α)) : Option (List (List α)) :=
+  if n == 0 then some []
+  else
+    Id.run do
+      -- Augment with identity: each row is [A_i | I_i]
+      let mut aug : List (List α) :=
+        List.ofFn fun i : Fin n =>
+          let left := rows0.getD i.val (List.replicate n 0)
+          let right := List.ofFn fun j : Fin n => if i.val = j.val then (1 : α) else (0 : α)
+          left ++ right
+      let width := 2 * n
+      for col in [0:n] do
+        match findPivot aug col n col with
+        | none => return none
+        | some piv =>
+          aug := swapRows aug col piv
+          let pivot := get aug col col 0
+          if isZero pivot then return none
+          -- Scale pivot row to 1
+          for j in [0:width] do
+            aug := set aug col j (get aug col j 0 / pivot)
+          -- Eliminate column in all other rows
+          for i in [0:n] do
+            if i != col then
+              let factor := get aug i col 0
+              if !(isZero factor) then
+                for j in [0:width] do
+                  let v := get aug i j 0 - factor * get aug col j 0
+                  aug := set aug i j v
+      let invRows := aug.map fun row => row.drop n
+      return some invRows
+
+end Matrix.Elim
+
+/-- Determinant: Bareiss `O(n³)` when `Div` is available (preferred); see also `detLaplace`. -/
+def Matrix.det {α : Type} [BEq α] [Add α] [Sub α] [Mul α] [Div α] [Neg α]
+    [OfNat α 0] [OfNat α 1] {n : Nat} (mat : Matrix α n n) : α :=
+  Matrix.Elim.detBareiss n mat.rowLists
 
 def Matrix.add {α : Type} [Add α] {m n : Nat} (mat1 mat2 : Matrix α m n) : Matrix α m n :=
   let rows := List.zipWith Vec.add mat1.data.data mat2.data.data
@@ -99,11 +235,13 @@ def Matrix.smul {α β : Type} [HMul α β β] {m n : Nat} (c : α) (mat : Matri
   let rows := mat.data.data.map (Vec.smul c)
   ⟨Vec.mk' rows (by rw [List.length_map, mat.data.length_eq])⟩
 
+/-- Matrix product. Precomputes columns of `mat2` once (`O(n·p)`), then `O(m·n·p)` dots. -/
 def Matrix.mul {α : Type} [Add α] [Mul α] [OfNat α 0] {m n p : Nat}
     (mat1 : Matrix α m n) (mat2 : Matrix α n p) : Matrix α m p :=
+  let cols : List (Vec α n) := List.ofFn fun j : Fin p => mat2.col j
   let rows := List.ofFn fun i : Fin m =>
     Vec.mk' (List.ofFn fun j : Fin p =>
-      Vec.dot (mat1.row i) (mat2.col j))
+      Vec.dot (mat1.row i) (cols.getD j.val Vec.zero))
       (by rw [List.length_ofFn])
   ⟨Vec.mk' rows (by rw [List.length_ofFn])⟩
 
@@ -127,32 +265,100 @@ def Matrix.mulVec {α : Type} [Add α] [Mul α] [OfNat α 0] {m n : Nat}
 
 def Vec.mulMat {α : Type} [Add α] [Mul α] [OfNat α 0] {m n : Nat}
     (vec : Vec α m) (mat : Matrix α m n) : Vec α n :=
-  let result := List.ofFn fun j : Fin n => Vec.dot vec (mat.col j)
+  let cols : List (Vec α m) := List.ofFn fun j : Fin n => mat.col j
+  let result := List.ofFn fun j : Fin n => Vec.dot vec (cols.getD j.val Vec.zero)
   Vec.mk' result (by rw [List.length_ofFn])
 
+/-- Matrix power by exponentiation by squaring (`O(log k)` multiplications). -/
 def Matrix.pow {α : Type} [Add α] [Mul α] [OfNat α 0] [OfNat α 1] {n : Nat}
-    (mat : Matrix α n n) (k : Nat) : Matrix α n n :=
-  match k with
+    (mat : Matrix α n n) : Nat → Matrix α n n
   | 0 => Matrix.identity
   | 1 => mat
-  | k + 2 => mat.mul (mat.pow (k + 1))
+  | k + 2 =>
+    let k' := k + 2
+    if k' % 2 == 0 then
+      let half := Matrix.pow mat (k' / 2)
+      half.mul half
+    else
+      mat.mul (Matrix.pow mat (k' - 1))
 
-/-- Placeholder: true inversion needs elimination over the coefficient ring. -/
-def Matrix.inv {α : Type} [Add α] [Sub α] [Mul α] [Div α] [OfNat α 0] [OfNat α 1] {n : Nat}
-    (_mat : Matrix α n n) : Option (Matrix α n n) :=
-  none
+/-- Matrix inverse via Gauss–Jordan. Returns `none` if no pivot is found (singular / degenerate).
 
-/-- Placeholder: rank is not computed in this library yet. -/
-def Matrix.rank {α : Type} [Add α] [Sub α] [Mul α] [OfNat α 0] {m n : Nat}
-    (_mat : Matrix α m n) : Nat :=
-  0
+Prefer a field with exact division (`Rat`, floating point). Over `Int`, truncated division can
+destroy correctness unless all pivots are units (e.g. unipotent matrices). Lift with
+`Matrix.map (↑ : Int → Rat)` and invert over `Rat` for exact integer problems. -/
+def Matrix.inv {α : Type} [BEq α] [Add α] [Sub α] [Mul α] [Div α] [OfNat α 0] [OfNat α 1]
+    {n : Nat} (mat : Matrix α n n) : Option (Matrix α n n) :=
+  match Matrix.Elim.invert n mat.rowLists with
+  | none => none
+  | some rows =>
+    if rows.length == n then
+      let data :=
+        List.ofFn fun i : Fin n =>
+          Vec.mk' (List.ofFn fun j : Fin n => (rows.getD i.val []).getD j.val 0)
+            (by rw [List.length_ofFn])
+      some ⟨Vec.mk' data (by rw [List.length_ofFn])⟩
+    else
+      none
 
-/-- Placeholder: eigenvalues are not computed in this library yet. -/
-def Matrix.eigenvalues {α : Type} [Add α] [Sub α] [Mul α] [OfNat α 0] {n : Nat}
-    (_mat : Matrix α n n) : List α :=
-  []
+/-- Matrix rank via Gaussian elimination over a field-like coefficient type.
 
-/-! 
+Same division caveat as `inv`: prefer `Rat` / floats over `Int`. -/
+def Matrix.rank {α : Type} [BEq α] [Add α] [Sub α] [Mul α] [Div α] [OfNat α 0]
+    {m n : Nat} (mat : Matrix α m n) : Nat :=
+  Matrix.Elim.rankOf m n mat.rowLists
+
+/-- Entrywise map (used e.g. to lift `Int` matrices to `Rat`). -/
+def Matrix.map {α β : Type} {m n : Nat} (f : α → β) (mat : Matrix α m n) : Matrix β m n :=
+  let rows := mat.data.data.map fun row =>
+    Vec.mk' (row.data.map f) (by rw [List.length_map, row.length_eq])
+  ⟨Vec.mk' rows (by rw [List.length_map, mat.data.length_eq])⟩
+
+/-- Closed-form eigenvalues of a `2 × 2` matrix (characteristic polynomial). -/
+def Matrix.eigenvalues2x2 {α : Type} [Add α] [Sub α] [Mul α] [Div α] [OfNat α 0] [OfNat α 1]
+    [OfNat α 2] [OfNat α 4] (mat : Matrix α 2 2)
+    (sqrt : α → α) : α × α :=
+  let a := mat.get ⟨0, by decide⟩ ⟨0, by decide⟩
+  let b := mat.get ⟨0, by decide⟩ ⟨1, by decide⟩
+  let c := mat.get ⟨1, by decide⟩ ⟨0, by decide⟩
+  let d := mat.get ⟨1, by decide⟩ ⟨1, by decide⟩
+  let tr := a + d
+  let det := a * d - b * c
+  let disc := tr * tr - (4 : α) * det
+  let s := sqrt disc
+  ((tr + s) / (2 : α), (tr - s) / (2 : α))
+
+/-- Monic characteristic polynomial of a `2 × 2` matrix: `x² - tr·x + det`, highest degree first. -/
+def Matrix.charPoly2x2 {α : Type} [Add α] [Sub α] [Mul α] [Neg α] [OfNat α 0] [OfNat α 1]
+    (mat : Matrix α 2 2) : List α :=
+  let tr := mat.trace
+  let d := mat.det2x2
+  [1, -tr, d]
+
+/-- Sum of principal `2 × 2` minors of a `3 × 3` matrix (coeff of `x` in `det(xI - A)`). -/
+def Matrix.principalMinorSum3x3 {α : Type} [Add α] [Sub α] [Mul α] [OfNat α 0]
+    (mat : Matrix α 3 3) : α :=
+  let a00 := mat.get ⟨0, by decide⟩ ⟨0, by decide⟩
+  let a01 := mat.get ⟨0, by decide⟩ ⟨1, by decide⟩
+  let a02 := mat.get ⟨0, by decide⟩ ⟨2, by decide⟩
+  let a10 := mat.get ⟨1, by decide⟩ ⟨0, by decide⟩
+  let a11 := mat.get ⟨1, by decide⟩ ⟨1, by decide⟩
+  let a12 := mat.get ⟨1, by decide⟩ ⟨2, by decide⟩
+  let a20 := mat.get ⟨2, by decide⟩ ⟨0, by decide⟩
+  let a21 := mat.get ⟨2, by decide⟩ ⟨1, by decide⟩
+  let a22 := mat.get ⟨2, by decide⟩ ⟨2, by decide⟩
+  (a00 * a11 - a01 * a10) + (a00 * a22 - a02 * a20) + (a11 * a22 - a12 * a21)
+
+/-- Monic characteristic polynomial of a `3 × 3` matrix: `x³ - tr·x² + σ·x - det`, highest first. -/
+def Matrix.charPoly3x3 {α : Type}
+    [BEq α] [Add α] [Sub α] [Mul α] [Div α] [Neg α] [OfNat α 0] [OfNat α 1]
+    (mat : Matrix α 3 3) : List α :=
+  let tr := mat.trace
+  let σ := mat.principalMinorSum3x3
+  let d := mat.det
+  [1, -tr, σ, -d]
+
+/-!
 ## Basic lemmas
 -/
 
